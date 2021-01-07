@@ -1,7 +1,13 @@
 package ru.spiritblog.criminalintent
 
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.icu.text.MessageFormat.format
+import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.text.Editable
 import android.text.TextWatcher
 import android.text.format.DateFormat.format
@@ -21,6 +27,7 @@ private const val TAG = "CrimeFragment"
 private const val ARG_CRIME_ID = "crime_id"
 private const val DIALOG_DATE = "DialogDate"
 private const val REQUEST_DATE = 0
+private const val REQUEST_CONTACT = 1
 private const val DATE_FORMAT = "EEE, MMM, dd"
 
 
@@ -30,6 +37,8 @@ class CrimeFragment : Fragment(), DatePickerFragment.Callbacks {
     private lateinit var titleField: EditText
     private lateinit var dateButton: Button
     private lateinit var solvedCheckBox: CheckBox
+    private lateinit var reportButton: Button
+    private lateinit var suspectButton: Button
     private val crimeDetailViewModel: CrimeDetailViewModel by lazy {
         ViewModelProviders.of(this).get(CrimeDetailViewModel::class.java)
     }
@@ -57,9 +66,8 @@ class CrimeFragment : Fragment(), DatePickerFragment.Callbacks {
         titleField = view.findViewById(R.id.editCrime) as EditText
         dateButton = view.findViewById(R.id.buttonDate) as Button
         solvedCheckBox = view.findViewById(R.id.checkBoxCrime) as CheckBox
-
-
-
+        reportButton = view.findViewById(R.id.crime_report) as Button
+        suspectButton = view.findViewById(R.id.crime_suspect) as Button
 
         return view
     }
@@ -118,6 +126,39 @@ class CrimeFragment : Fragment(), DatePickerFragment.Callbacks {
         }
 
 
+        reportButton.setOnClickListener {
+            Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, getCrimeReport())
+                putExtra(Intent.EXTRA_SUBJECT, getString(R.string.crime_report_subject))
+            }.also { intent ->
+                val chooserIntent = Intent.createChooser(intent, getString(R.string.send_report))
+                startActivity(chooserIntent)
+            }
+        }
+
+
+        suspectButton.apply {
+            val pickContactIntent =
+                Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI)
+
+            setOnClickListener {
+                startActivityForResult(pickContactIntent, REQUEST_CONTACT)
+            }
+
+
+            val packageManager: PackageManager = requireActivity().packageManager
+            val resolvedActivity: ResolveInfo? =
+                packageManager.resolveActivity(pickContactIntent, PackageManager.MATCH_DEFAULT_ONLY)
+
+            if (resolvedActivity == null) {
+                isEnabled = false
+            }
+
+
+        }
+
+
     }
 
 
@@ -140,6 +181,53 @@ class CrimeFragment : Fragment(), DatePickerFragment.Callbacks {
             isChecked = crime.isSolved
             jumpDrawablesToCurrentState()
         }
+
+        if (crime.suspect.isNotEmpty()) {
+            suspectButton.text = crime.suspect
+        }
+
+
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, date: Intent?) {
+        when {
+            resultCode != Activity.RESULT_OK -> return
+
+            requestCode == REQUEST_CONTACT && date != null -> {
+                val contactUri: Uri? = date.data
+                // Поля, которые должен возвращать запрос
+
+                val queryFields = arrayOf(ContactsContract.Contacts.DISPLAY_NAME)
+
+                // Выполнение запроса, URI контакта указывает на его местонахождение
+
+                val cursor = contactUri?.let {
+                    requireActivity().contentResolver
+                        .query(it, queryFields, null, null, null)
+                }
+                cursor?.use {
+                    // Проверка курсора на наличие хотя бы одного результата
+                    if (it.count == 0) {
+                        return
+                    }
+
+                    // Выгрузка первого столбца, первой строки данных(имени подозреваемого)
+
+                    it.moveToFirst()
+                    val suspect = it.getString(0)
+                    crime.suspect = suspect
+                    crimeDetailViewModel.saveCrime(crime)
+                    suspectButton.text = suspect
+
+
+                }
+
+
+            }
+
+
+        }
+
 
     }
 
